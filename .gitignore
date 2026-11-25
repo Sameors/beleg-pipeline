@@ -1,0 +1,28 @@
+# --- Personal data: NEVER commit real documents or the database ---
+data/
+inbox/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.env
+
+# Generated test files
+tests/fixtures/generated/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
