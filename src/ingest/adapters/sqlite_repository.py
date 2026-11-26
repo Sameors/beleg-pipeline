@@ -42,34 +42,46 @@ class SqliteRepository:
         )
 
     def find_by_sha256(self, sha256: str) -> Document | None:
-            cur = self.conn.execute(
-                "SELECT * FROM document WHERE sha256 = ?",
-                (sha256,),
-            )
-            row = cur.fetchone()
-            if row is None:
-                return None
-            return self._row_to_document(row)
+        cur = self.conn.execute(
+            "SELECT * FROM document WHERE sha256 = ?",
+            (sha256,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return self._row_to_document(row)
 
     def get(self, doc_id: str) -> Document | None:
-        raise NotImplementedError
+        cur = self.conn.execute(
+            "SELECT * FROM document WHERE doc_id = ?",
+            (doc_id,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return self._row_to_document(row)
 
     def list_by_status(self, status: Status) -> list[Document]:
-        raise NotImplementedError
+        cur = self.conn.execute(
+            "SELECT * FROM document WHERE status = ?",
+            (status.value,),
+        )
+        rows = cur.fetchall()
+        return [self._row_to_document(row) for row in rows]
 
     def add_document(self, document: Document, event: IngestionEvent) -> None:
         try:
             with self.conn:
-                        self.conn.execute(
-                            '''INSERT INTO document (doc_id, sha256, original_filename, 
-                            source_id, received_at, mime_type, size_bytes, page_count, stored_path, 
-                            status, error_code, error_detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                            (document.doc_id, document.sha256, document.original_filename, 
-                             document.source_id, document.received_at, document.mime_type, 
-                             document.size_bytes, document.page_count, document.stored_path, 
-                             document.status, document.error_code, document.error_detail),
-                        )
-                        self._insert_event(event)
+                self.conn.execute(
+                    '''INSERT INTO document (doc_id, sha256, original_filename, 
+                    source_id, received_at, mime_type, size_bytes, page_count, stored_path, 
+                    status, error_code, error_detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                    (document.doc_id, document.sha256, document.original_filename, 
+                        document.source_id, document.received_at, document.mime_type, 
+                        document.size_bytes, document.page_count, document.stored_path, 
+                        document.status, document.error_code, document.error_detail),
+                )
+                self._insert_event(event)
         except sqlite3.IntegrityError as e:
             if "UNIQUE constraint failed: document.sha256" in str(e):
                 raise DuplicateDocumentError from e
@@ -84,18 +96,30 @@ class SqliteRepository:
     
         
     def add_event(self, event: IngestionEvent) -> None:
-        raise NotImplementedError
+        with self.conn:
+            self._insert_event(event)
 
     def events_for(self, doc_id: str) -> list[IngestionEvent]:
-        raise NotImplementedError
+        cur = self.conn.execute(
+            "SELECT * FROM ingestion_event WHERE doc_id = ? ORDER BY event_id",
+            (doc_id,),
+        )
+        rows = cur.fetchall()
+        return [IngestionEvent(
+            doc_id=row["doc_id"],
+            event_type=row["event_type"],
+            occurred_at=row["occurred_at"],
+            actor=row["actor"],
+            details=json.loads(row["details"])
+        ) for row in rows]
 
     def count_events(self, event_type: str) -> int:
-            cur = self.conn.execute(
-                "SELECT COUNT(*) FROM ingestion_event WHERE event_type = ?",
-                (event_type,),
-            )
-            row = cur.fetchone()[0]
-            return row
+        cur = self.conn.execute(
+            "SELECT COUNT(*) FROM ingestion_event WHERE event_type = ?",
+            (event_type,),
+        )
+        row = cur.fetchone()[0]
+        return row
 
     def _row_to_document(self, row: sqlite3.Row) -> Document:
         return Document(
