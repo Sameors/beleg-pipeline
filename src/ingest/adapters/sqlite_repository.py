@@ -1,10 +1,11 @@
 """DocumentRepository on SQLite (phase 1). Swap for PostgreSQL later behind the same port."""
 
 import sqlite3
+import json
 from pathlib import Path
 
 from ingest.domain.models import Document, IngestionEvent, Status
-
+from ingest.ports.repository import DuplicateDocumentError
 MIGRATIONS_DIR = Path(__file__).resolve().parents[3] / "migrations"
 
 
@@ -34,10 +35,21 @@ class SqliteRepository:
     #   - Store datetimes as ISO strings, details as json.dumps(dict).
 
     def ensure_source(self, source_id: str, channel: str, address: str) -> None:
-        raise NotImplementedError
+        with self.conn:
+            self.conn.execute(
+            "INSERT OR IGNORE INTO source (source_id, channel, address) VALUES (?, ?, ?)",
+            (source_id, channel, address),
+        )
 
     def find_by_sha256(self, sha256: str) -> Document | None:
-        raise NotImplementedError
+            cur = self.conn.execute(
+                "SELECT * FROM document WHERE sha256 = ?",
+                (sha256,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None
+            return self._row_to_document(row)
 
     def get(self, doc_id: str) -> Document | None:
         raise NotImplementedError
@@ -46,8 +58,31 @@ class SqliteRepository:
         raise NotImplementedError
 
     def add_document(self, document: Document, event: IngestionEvent) -> None:
-        raise NotImplementedError
-
+        try:
+            with self.conn:
+                        self.conn.execute(
+                            '''INSERT INTO document (doc_id, sha256, original_filename, 
+                            source_id, received_at, mime_type, size_bytes, page_count, stored_path, 
+                            status, error_code, error_detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                            (document.doc_id, document.sha256, document.original_filename, 
+                             document.source_id, document.received_at, document.mime_type, 
+                             document.size_bytes, document.page_count, document.stored_path, 
+                             document.status, document.error_code, document.error_detail),
+                        )
+                        self._insert_event(event)
+        except sqlite3.IntegrityError as e:
+            if "UNIQUE constraint failed: document.sha256" in str(e):
+                raise DuplicateDocumentError from e
+            raise
+    
+    def _insert_event(self, event: IngestionEvent) -> None:
+        self.conn.execute(
+            '''INSERT INTO ingestion_event (doc_id, event_type, occurred_at, actor, details) 
+            VALUES (?, ?, ?, ?, ?)''',
+            (event.doc_id, event.event_type.value, event.occurred_at.isoformat(), event.actor, json.dumps(event.details),)
+        )
+    
+        
     def add_event(self, event: IngestionEvent) -> None:
         raise NotImplementedError
 
@@ -55,4 +90,25 @@ class SqliteRepository:
         raise NotImplementedError
 
     def count_events(self, event_type: str) -> int:
-        raise NotImplementedError
+            cur = self.conn.execute(
+                "SELECT COUNT(*) FROM ingestion_event WHERE event_type = ?",
+                (event_type,),
+            )
+            row = cur.fetchone()[0]
+            return row
+
+    def _row_to_document(self, row: sqlite3.Row) -> Document:
+        return Document(
+            doc_id=row["doc_id"],
+            sha256=row["sha256"],
+            original_filename=row["original_filename"],
+            source_id=row["source_id"],
+            received_at=row["received_at"],
+            mime_type=row["mime_type"],
+            size_bytes=row["size_bytes"],
+            page_count=row["page_count"],
+            stored_path=row["stored_path"],
+            status=Status(row["status"]),
+            error_code=row["error_code"],
+            error_detail=row["error_detail"],
+        )
