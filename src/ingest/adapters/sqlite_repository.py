@@ -1,11 +1,12 @@
 """DocumentRepository on SQLite (phase 1). Swap for PostgreSQL later behind the same port."""
 
-import sqlite3
 import json
+import sqlite3
 from pathlib import Path
 
 from ingest.domain.models import Document, IngestionEvent, Status
 from ingest.ports.repository import DuplicateDocumentError
+
 MIGRATIONS_DIR = Path(__file__).resolve().parents[3] / "migrations"
 
 
@@ -37,9 +38,9 @@ class SqliteRepository:
     def ensure_source(self, source_id: str, channel: str, address: str) -> None:
         with self.conn:
             self.conn.execute(
-            "INSERT OR IGNORE INTO source (source_id, channel, address) VALUES (?, ?, ?)",
-            (source_id, channel, address),
-        )
+                "INSERT OR IGNORE INTO source (source_id, channel, address) VALUES (?, ?, ?)",
+                (source_id, channel, address),
+            )
 
     def find_by_sha256(self, sha256: str) -> Document | None:
         cur = self.conn.execute(
@@ -73,28 +74,44 @@ class SqliteRepository:
         try:
             with self.conn:
                 self.conn.execute(
-                    '''INSERT INTO document (doc_id, sha256, original_filename, 
+                    """INSERT INTO document (doc_id, sha256, original_filename, 
                     source_id, received_at, mime_type, size_bytes, page_count, stored_path, 
-                    status, error_code, error_detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                    (document.doc_id, document.sha256, document.original_filename, 
-                        document.source_id, document.received_at, document.mime_type, 
-                        document.size_bytes, document.page_count, document.stored_path, 
-                        document.status, document.error_code, document.error_detail),
+                    status, error_code, error_detail) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        document.doc_id,
+                        document.sha256,
+                        document.original_filename,
+                        document.source_id,
+                        document.received_at,
+                        document.mime_type,
+                        document.size_bytes,
+                        document.page_count,
+                        document.stored_path,
+                        document.status,
+                        document.error_code,
+                        document.error_detail,
+                    ),
                 )
                 self._insert_event(event)
         except sqlite3.IntegrityError as e:
             if "UNIQUE constraint failed: document.sha256" in str(e):
                 raise DuplicateDocumentError from e
             raise
-    
+
     def _insert_event(self, event: IngestionEvent) -> None:
         self.conn.execute(
-            '''INSERT INTO ingestion_event (doc_id, event_type, occurred_at, actor, details) 
-            VALUES (?, ?, ?, ?, ?)''',
-            (event.doc_id, event.event_type.value, event.occurred_at.isoformat(), event.actor, json.dumps(event.details),)
+            """INSERT INTO ingestion_event (doc_id, event_type, occurred_at, actor, details) 
+            VALUES (?, ?, ?, ?, ?)""",
+            (
+                event.doc_id,
+                event.event_type.value,
+                event.occurred_at.isoformat(),
+                event.actor,
+                json.dumps(event.details),
+            ),
         )
-    
-        
+
     def add_event(self, event: IngestionEvent) -> None:
         with self.conn:
             self._insert_event(event)
@@ -105,13 +122,16 @@ class SqliteRepository:
             (doc_id,),
         )
         rows = cur.fetchall()
-        return [IngestionEvent(
-            doc_id=row["doc_id"],
-            event_type=row["event_type"],
-            occurred_at=row["occurred_at"],
-            actor=row["actor"],
-            details=json.loads(row["details"])
-        ) for row in rows]
+        return [
+            IngestionEvent(
+                doc_id=row["doc_id"],
+                event_type=row["event_type"],
+                occurred_at=row["occurred_at"],
+                actor=row["actor"],
+                details=json.loads(row["details"]),
+            )
+            for row in rows
+        ]
 
     def count_events(self, event_type: str) -> int:
         cur = self.conn.execute(

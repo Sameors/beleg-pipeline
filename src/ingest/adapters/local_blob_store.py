@@ -1,7 +1,7 @@
 """BlobStore on the local file system."""
 
-from collections.abc import Iterator
 import os
+from collections.abc import Iterator
 from pathlib import Path
 
 
@@ -14,18 +14,18 @@ class LocalBlobStore:
         """Write once, atomically, read-only.
 
         TODO:
-        
+
           - target = self.root / relative_path; if it exists, return it (idempotent)
           - write to a temp file in the SAME folder (e.g. target.with_suffix(".tmp"))
           - os.replace(tmp, target)  -> atomic on Windows and Unix
           - target.chmod(0o444)      -> read-only
         Why temp + rename: a crash mid-write must never leave a half file at the final path.
         """
-        
+
         target = self.root / relative_path
         if target.exists():
             return str(target)
-        
+
         target.parent.mkdir(parents=True, exist_ok=True)
         tmp = target.with_suffix(".tmp")
         with open(tmp, "wb") as f:
@@ -35,7 +35,6 @@ class LocalBlobStore:
         os.replace(tmp, target)
         target.chmod(0o444)
         return str(target)
-        
 
     def exists(self, relative_path: str) -> bool:
         return (self.root / relative_path).exists()

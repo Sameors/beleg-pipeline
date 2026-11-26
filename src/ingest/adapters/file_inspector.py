@@ -1,12 +1,21 @@
 """FileInspector and Converter using filetype, pikepdf and pillow-heif."""
 
+import io
+
+import pikepdf
+import pillow_heif
+from filetype import filetype
+from PIL import Image
+
 from ingest.domain.models import ErrorCode
+from ingest.ports.file_inspector import ConversionError
 
 
 class DefaultFileInspector:
     def detect_mime(self, data: bytes) -> str | None:
-        """TODO: kind = filetype.guess(data); return kind.mime if kind else None."""
-        raise NotImplementedError
+        """Mime type from magic bytes (ADR-0005), never from the file extension."""
+        kind = filetype.guess(data)
+        return kind.mime if kind else None
 
     def check_pdf(self, data: bytes) -> tuple[int | None, ErrorCode | None]:
         """TODO:
@@ -18,7 +27,14 @@ class DefaultFileInspector:
         - else                  -> (len(pdf.pages), None)
         Never render the PDF or run anything inside it.
         """
-        raise NotImplementedError
+
+        try:
+            with pikepdf.open(io.BytesIO(data), attempt_recovery=False) as pdf:
+                return len(pdf.pages), None
+        except pikepdf.PasswordError:
+            return None, ErrorCode.ENCRYPTED
+        except pikepdf.PdfError:
+            return None, ErrorCode.CORRUPT
 
 
 class HeicConverter:
@@ -30,4 +46,13 @@ class HeicConverter:
         - wrap any exception in ports.file_inspector.ConversionError
         Open question in the architecture doc: JPEG or PDF as target format?
         """
-        raise NotImplementedError
+
+        pillow_heif.register_heif_opener()
+        try:
+            with io.BytesIO(data) as buf, Image.open(buf) as img:
+                img = img.convert("RGB")
+                out_buf = io.BytesIO()
+                img.save(out_buf, "JPEG", quality=90)
+                return out_buf.getvalue(), "image/jpeg"
+        except Exception as e:
+            raise ConversionError from e

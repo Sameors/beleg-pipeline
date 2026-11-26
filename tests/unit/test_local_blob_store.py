@@ -28,4 +28,3 @@ def test_no_temp_files_left_behind(tmp_path: Path) -> None:
     store = LocalBlobStore(tmp_path)
     store.put("ab/cd/abcd.pdf", b"hello")
     assert list(store.iter_paths()) == ["ab/cd/abcd.pdf"]
-    
